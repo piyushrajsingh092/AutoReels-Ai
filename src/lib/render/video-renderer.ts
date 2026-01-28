@@ -124,15 +124,12 @@ export async function renderVideo({
         // Code 8 "Filter not found" often refers to drawtext itself if the binary was compiled without it.
         // Let's try the absolute simplest possible scale/crop filter first.
 
-        logger('🛠 Applying ULTIMATE SAFE filters...');
-
-        // If drawtext keeps failing, it means the ffmpeg-static binary on Vercel was compiled WITHOUT drawtext support.
-        // We will try one more time with a very clean filter chain.
+        // DIAGNOSTIC VERSION: Removed drawtext to test if libfreetype is missing in the Vercel binary.
+        // If this works, the problem is 100% the drawtext filter support.
         const videoFilters = [
             'scale=1080:1920:force_original_aspect_ratio=increase',
             'crop=1080:1920',
-            'setsar=1',
-            `drawtext=text='${escapedText}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.5`
+            'setsar=1'
         ].join(',');
 
         command
