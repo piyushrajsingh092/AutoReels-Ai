@@ -115,6 +115,7 @@ export async function GET(request: Request) {
             projectId: project_id,
             script,
             duration: project.duration_sec,
+            language: project.language,
             logger: logger
         });
 

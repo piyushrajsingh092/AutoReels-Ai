@@ -5,6 +5,7 @@ import fs from 'fs';
 import { createAdminClient } from '@/utils/supabase/server';
 import { v4 as uuidv4 } from 'uuid';
 import OpenAI from 'openai';
+import { EdgeTTS } from 'edge-tts-universal';
 
 // Fixed FFmpeg path for Vercel Serverless
 let actualFfmpegPath: string | null = ffmpegPath;
@@ -37,10 +38,14 @@ if (actualFfmpegPath) {
     ffmpeg.setFfmpegPath(actualFfmpegPath);
 }
 
-// Initialize OpenAI for TTS
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+// Map languages to high-quality FREE Edge Neural voices
+const LANGUAGE_VOICE_MAP: Record<string, string> = {
+    'English': 'en-US-GuyNeural',
+    'Hindi': 'hi-IN-MadhurNeural',
+    'Spanish': 'es-MX-JorgeNeural',
+    'French': 'fr-FR-HenriNeural',
+    'Hinglish': 'en-IN-PrabhatNeural'
+};
 
 // Function to format time for SRT (00:00:00,000)
 function formatSrtTime(seconds: number): string {
@@ -52,11 +57,11 @@ function formatSrtTime(seconds: number): string {
 }
 
 // Helper to generate SRT content from script
-// In a real app, timing would be matched to audio. 
-// For now we distribute lines evenly across the duration.
 function generateSrt(script: { hook: string; body_lines: string[]; cta: string }, totalDuration: number): string {
     let srt = '';
     const allLines = [script.hook, ...script.body_lines, script.cta].filter(l => l && l.trim());
+    if (allLines.length === 0) return "";
+
     const lineDuration = totalDuration / allLines.length;
 
     allLines.forEach((line, i) => {
@@ -74,14 +79,16 @@ export async function renderVideo({
     projectId,
     script,
     duration,
+    language = "English",
     logger = (msg: string) => console.log(msg)
 }: {
     projectId: string;
     script: { hook: string; body_lines: string[]; cta: string };
     duration: number;
+    language?: string;
     logger?: (msg: string) => void;
 }) {
-    logger('🎬 Starting full video render for project: ' + projectId);
+    logger(`🎬 Starting full video render for project: ${projectId} (Lang: ${language})`);
 
     if (!actualFfmpegPath || !fs.existsSync(actualFfmpegPath)) {
         logger('❌ FFmpeg binary not found');
@@ -98,26 +105,39 @@ export async function renderVideo({
     const srtPath = path.join(tempDir, `${uuidv4()}.srt`);
     const audioPath = path.join(tempDir, `${uuidv4()}.mp3`);
 
-    // 1. GENERATE VOICEOVER (TTS)
-    logger('🎙️ Generating voiceover with OpenAI TTS...');
+    // 1. GENERATE VOICEOVER (FREE Edge TTS)
+    logger('🎙️ Generating free voiceover with Microsoft Edge Neural TTS...');
     const fullText = [script.hook, ...script.body_lines, script.cta].filter(l => l && l.trim()).join(' ');
+    const selectedVoice = LANGUAGE_VOICE_MAP[language] || 'en-US-GuyNeural';
 
     try {
-        const mp3 = await openai.audio.speech.create({
-            model: "tts-1",
-            voice: "alloy", // alloy, echo, fable, onyx, nova, shimmer
-            input: fullText,
-        });
-        const buffer = Buffer.from(await mp3.arrayBuffer());
-        fs.writeFileSync(audioPath, buffer);
+        const tts = new EdgeTTS(fullText, selectedVoice);
+        const result = await tts.synthesize();
+        // Edge TTS Universal returns a Blob in browser-like environments, 
+        // but in Node it often has audioData or needs buffer conversion.
+        const audioBuffer = Buffer.from(await (result as any).audio.arrayBuffer());
+        fs.writeFileSync(audioPath, audioBuffer);
         logger('✅ Voiceover saved at ' + audioPath);
     } catch (err: any) {
-        if (err.status === 429 || err.message?.includes('quota') || err.message?.includes('billing')) {
-            logger('❌ TTS QUOTA EXCEEDED: OpenAI credits empty.');
-            throw new Error('OPENAI_QUOTA_EXHAUSTED: Credits empty. Use Groq/Gemini for script generation or add OpenAI billing.');
+        logger(`❌ Edge TTS Failed, falling back to OpenAI (if key available): ${err.message}`);
+        // Fallback to OpenAI if Edge fails (unlikely, but safe)
+        if (process.env.OPENAI_API_KEY) {
+            try {
+                const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                const mp3 = await openai.audio.speech.create({
+                    model: "tts-1",
+                    voice: "alloy",
+                    input: fullText,
+                });
+                const buffer = Buffer.from(await mp3.arrayBuffer());
+                fs.writeFileSync(audioPath, buffer);
+                logger('✅ Fallback OpenAI Voiceover saved.');
+            } catch (openAiErr: any) {
+                throw new Error(`Critical Error: Both Edge TTS and OpenAI failed. ${openAiErr.message}`);
+            }
+        } else {
+            throw err;
         }
-        logger('❌ TTS Error: ' + err.message);
-        throw err;
     }
 
     // 2. GENERATE SUBTITLES
@@ -129,7 +149,7 @@ export async function renderVideo({
     const bgVideoPath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.mp4');
     const bgImagePath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.png');
 
-    let inputSource = "";
+    let inputSource = bgVideoPath;
     let isImage = false;
 
     if (fs.existsSync(bgVideoPath)) {
@@ -138,9 +158,7 @@ export async function renderVideo({
     } else if (fs.existsSync(bgImagePath)) {
         inputSource = bgImagePath;
         isImage = true;
-    }
-
-    if (!inputSource) {
+    } else {
         logger('❌ Background asset missing. Ensure public/assets/broll/default.png exists.');
         throw new Error('Background asset missing');
     }
@@ -149,14 +167,12 @@ export async function renderVideo({
     return new Promise((resolve, reject) => {
         let command = ffmpeg();
 
-        // Input 0: Background
         if (isImage) {
             command.input(inputSource).inputOptions(['-loop', '1']);
         } else {
             command.input(inputSource).inputOptions(['-stream_loop', '-1']);
         }
 
-        // Input 1: Audio
         command.input(audioPath);
 
         const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
@@ -164,7 +180,7 @@ export async function renderVideo({
             'scale=1080:1920:force_original_aspect_ratio=increase',
             'crop=1080:1920',
             'setsar=1',
-            `subtitles='${escapedSrtPath}':force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Alignment=2,MarginV=50'`
+            `subtitles='${escapedSrtPath}':force_style='FontSize=26,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Alignment=2,MarginV=60'`
         ].join(',');
 
         logger('🛠 Merging background, audio, and subtitles...');
@@ -215,8 +231,6 @@ export async function renderVideo({
             })
             .on('error', (err, stdout, stderr) => {
                 logger('❌ FFmpeg Error: ' + err.message);
-                logger('STDOUT: ' + stdout);
-                logger('STDERR: ' + stderr);
                 reject(err);
             })
             .run();
