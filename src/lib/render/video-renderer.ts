@@ -112,6 +112,10 @@ export async function renderVideo({
         fs.writeFileSync(audioPath, buffer);
         logger('✅ Voiceover saved at ' + audioPath);
     } catch (err: any) {
+        if (err.status === 429 || err.message?.includes('quota') || err.message?.includes('billing')) {
+            logger('❌ TTS QUOTA EXCEEDED: OpenAI credits empty.');
+            throw new Error('OPENAI_QUOTA_EXHAUSTED: Credits empty. Use Groq/Gemini for script generation or add OpenAI billing.');
+        }
         logger('❌ TTS Error: ' + err.message);
         throw err;
     }

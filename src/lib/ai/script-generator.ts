@@ -3,53 +3,69 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Helper to get specialized client based on provider
 async function getAICompletion(prompt: string, systemPrompt: string = "You output JSON only.", overrideProvider?: string) {
-  const provider = (overrideProvider || process.env.AI_PROVIDER || 'openai').toLowerCase();
+  let provider = (overrideProvider || process.env.AI_PROVIDER || 'openai').toLowerCase();
 
-  try {
-    if (provider === 'groq') {
-      const groq = new OpenAI({
-        apiKey: process.env.GROQ_API_KEY,
-        baseURL: "https://api.groq.com/openai/v1",
+  const attemptCompletion = async (currentProvider: string): Promise<any> => {
+    try {
+      if (currentProvider === 'groq') {
+        const groq = new OpenAI({
+          apiKey: process.env.GROQ_API_KEY,
+          baseURL: "https://api.groq.com/openai/v1",
+        });
+        const completion = await groq.chat.completions.create({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          model: process.env.AI_MODEL_GROQ || "llama3-8b-8192",
+          response_format: { type: "json_object" },
+        });
+        return JSON.parse(completion.choices[0].message.content || "{}");
+      }
+
+      if (currentProvider === 'gemini') {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+        const model = genAI.getGenerativeModel({
+          model: process.env.AI_MODEL_GEMINI || "gemini-1.5-flash",
+          generationConfig: { responseMimeType: "application/json" }
+        });
+        const result = await model.generateContent(`${systemPrompt}\n\n${prompt}`);
+        return JSON.parse(result.response.text() || "{}");
+      }
+
+      // OpenAI logic
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
       });
-      const completion = await groq.chat.completions.create({
+      const completion = await openai.chat.completions.create({
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: prompt }
         ],
-        model: process.env.AI_MODEL_GROQ || "llama3-8b-8192",
+        model: process.env.AI_MODEL_OPENAI || "gpt-4o-mini",
         response_format: { type: "json_object" },
       });
       return JSON.parse(completion.choices[0].message.content || "{}");
+
+    } catch (error: any) {
+      console.error(`❌ ${currentProvider.toUpperCase()} Error:`, error.message);
+
+      // If OpenAI fails with quota issues, try to fallback to Gemini then Groq
+      if (currentProvider === 'openai' && (error.status === 429 || error.message?.includes('quota') || error.message?.includes('billing'))) {
+        console.warn('⚠️ OpenAI quota exceeded. Falling back to Gemini...');
+        return attemptCompletion('gemini');
+      }
+
+      if (currentProvider === 'gemini') {
+        console.warn('⚠️ Gemini failed. Falling back to Groq...');
+        return attemptCompletion('groq');
+      }
+
+      throw error;
     }
+  };
 
-    if (provider === 'gemini') {
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-      const model = genAI.getGenerativeModel({
-        model: process.env.AI_MODEL_GEMINI || "gemini-1.5-flash",
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      const result = await model.generateContent(`${systemPrompt}\n\n${prompt}`);
-      return JSON.parse(result.response.text() || "{}");
-    }
-
-    // Default: OpenAI
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-    const completion = await openai.chat.completions.create({
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt }
-      ],
-      model: process.env.AI_MODEL_OPENAI || "gpt-4o-mini",
-      response_format: { type: "json_object" },
-    });
-    return JSON.parse(completion.choices[0].message.content || "{}");
-
-  } catch (error: any) {
-    console.error(`❌ ${provider.toUpperCase()} Error:`, error.message);
-    throw error;
-  }
+  return attemptCompletion(provider);
 }
 
 export async function generateScript({
