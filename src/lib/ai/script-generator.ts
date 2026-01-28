@@ -96,6 +96,7 @@ export async function generateMetadata({ niche, language, script, provider }: { 
   const prompt = `
     Based on this script: "${script}"
     Generate Title, Caption, and 5 Hashtags.
+    IMPORTANT: Must include #shorts in hashtags.
     Return JSON:
     {
       "title": "string",
@@ -105,11 +106,11 @@ export async function generateMetadata({ niche, language, script, provider }: { 
   `;
 
   try {
-    return await getAICompletion(prompt, "You are a social media expert. You output JSON only.", provider);
+    return await getAICompletion(prompt, "You are a social media expert specializing in YouTube Shorts. You output JSON only.", provider);
   } catch (error) {
     return {
-      title: `The Truth About ${niche}`,
-      caption: `I bet you didn't know this about ${niche}! Follow for more.`,
+      title: `${niche} - The Secret Revealed! #shorts`,
+      caption: `I bet you didn't know this about ${niche}! Follow for more. #viral #shorts`,
       hashtags: `#${niche.replace(/\s+/g, '')} #${language} #viral #shorts #reels`
     };
   }

@@ -1,10 +1,9 @@
-"use client";
-
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { Sparkles, Video, Clock, Globe, FileText, Cpu } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function CreateVideo() {
+function CreateVideoForm() {
+    const searchParams = useSearchParams();
     const [mode, setMode] = useState<"auto" | "manual">("auto");
     const [niche, setNiche] = useState("Motivation");
     const [manualScript, setManualScript] = useState("");
@@ -14,6 +13,14 @@ export default function CreateVideo() {
     const [style, setStyle] = useState("text_subtitles");
     const [loading, setLoading] = useState(false);
     const router = useRouter();
+
+    useEffect(() => {
+        const queryNiche = searchParams.get("niche");
+        if (queryNiche) {
+            setNiche(queryNiche);
+            setMode("auto");
+        }
+    }, [searchParams]);
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -198,5 +205,13 @@ export default function CreateVideo() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function CreateVideo() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <CreateVideoForm />
+        </Suspense>
     );
 }
