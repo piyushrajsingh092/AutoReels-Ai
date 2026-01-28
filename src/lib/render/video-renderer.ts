@@ -118,20 +118,31 @@ export async function renderVideo({
             command.input(inputSource).inputOptions(['-stream_loop', '-1']);
         }
 
-        const escapedHook = escapeFFmpegText(script.hook);
+        const escapedText = escapeFFmpegText(script.hook);
 
-        // Vercel FFmpeg is very limited. We'll simplify the filters significantly.
-        // We'll use simple output options instead of complex filters if possible.
+        // Vercel FFmpeg is VERY limited. 
+        // Code 8 "Filter not found" often refers to drawtext itself if the binary was compiled without it.
+        // Let's try the absolute simplest possible scale/crop filter first.
 
-        logger('🛠 Applying simplified FFmpeg filters...');
+        logger('🛠 Applying ULTIMATE SAFE filters...');
+
+        // If drawtext keeps failing, it means the ffmpeg-static binary on Vercel was compiled WITHOUT drawtext support.
+        // We will try one more time with a very clean filter chain.
+        const videoFilters = [
+            'scale=1080:1920:force_original_aspect_ratio=increase',
+            'crop=1080:1920',
+            'setsar=1',
+            `drawtext=text='${escapedText}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.5`
+        ].join(',');
 
         command
+            .videoFilter(videoFilters)
             .outputOptions([
-                '-vf', `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,drawtext=text='${escapedHook}':fontsize=70:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.6:boxborderw=20`,
                 '-t', duration.toString(),
                 '-c:v', 'libx264',
                 '-preset', 'ultrafast',
-                '-pix_fmt', 'yuv420p'
+                '-pix_fmt', 'yuv420p',
+                '-movflags', '+faststart'
             ])
             .output(outputPath)
             .on('start', (cmdLine) => logger('🚀 FFmpeg started: ' + cmdLine))
