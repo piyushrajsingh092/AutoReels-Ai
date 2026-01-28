@@ -80,13 +80,15 @@ export async function renderVideo({
     script,
     duration,
     language = "English",
-    logger = (msg: string) => console.log(msg)
+    logger = (msg: string) => console.log(msg),
+    onProgress
 }: {
     projectId: string;
     script: { hook: string; body_lines: string[]; cta: string };
     duration: number;
     language?: string;
     logger?: (msg: string) => void;
+    onProgress?: (progress: number) => void;
 }) {
     logger(`🎬 Starting full video render for project: ${projectId} (Lang: ${language})`);
 
@@ -107,6 +109,8 @@ export async function renderVideo({
 
     // 1. GENERATE VOICEOVER (FREE Edge TTS)
     logger('🎙️ Generating free voiceover with Microsoft Edge Neural TTS...');
+    if (onProgress) onProgress(10); // 10% progress
+
     const fullText = [script.hook, ...script.body_lines, script.cta].filter(l => l && l.trim()).join(' ');
     const selectedVoice = LANGUAGE_VOICE_MAP[language] || 'en-US-GuyNeural';
 
@@ -140,10 +144,14 @@ export async function renderVideo({
         }
     }
 
+    if (onProgress) onProgress(20); // 20% progress
+
     // 2. GENERATE SUBTITLES
     const srtContent = generateSrt(script, duration);
     fs.writeFileSync(srtPath, srtContent);
     logger('📝 Subtitles generated at ' + srtPath);
+
+    if (onProgress) onProgress(30); // 30% progress
 
     // 3. DETERMINE BACKGROUND
     const bgVideoPath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.mp4');
@@ -200,8 +208,16 @@ export async function renderVideo({
             ])
             .output(outputPath)
             .on('start', (cmdLine) => logger('🚀 FFmpeg started: ' + cmdLine))
+            .on('progress', (p) => {
+                if (p.percent && onProgress) {
+                    // Map 0-100% of ffmpeg to 30-90% of total
+                    const totalPercent = 30 + (p.percent * 0.6);
+                    onProgress(Math.round(totalPercent));
+                }
+            })
             .on('end', async () => {
                 try {
+                    if (onProgress) onProgress(95); // Almost done
                     logger('✅ Full render finished. Uploading...');
                     const fileBuffer = fs.readFileSync(outputPath);
                     const { data, error } = await supabase.storage
@@ -223,6 +239,7 @@ export async function renderVideo({
                     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
 
                     logger('🔗 Final Video URL: ' + publicUrl);
+                    if (onProgress) onProgress(100);
                     resolve(publicUrl);
                 } catch (e: any) {
                     logger('❌ Upload failed: ' + e.message);

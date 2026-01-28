@@ -65,7 +65,13 @@ export default function QueuePage() {
                                 ) : (
                                     <div className="flex flex-col items-center gap-3 text-muted">
                                         {project.status === 'error' ? <AlertCircle size={48} className="text-red-400" /> : <Clock size={48} className="animate-pulse" />}
-                                        <span className="text-sm font-medium">{project.status === 'error' ? 'Failed' : 'Processing...'}</span>
+                                        <span className="text-sm font-medium">
+                                            {project.status === 'error'
+                                                ? 'Failed'
+                                                : project.progress
+                                                    ? `Processing ${project.progress}%`
+                                                    : 'Processing...'}
+                                        </span>
                                     </div>
                                 )}
                             </div>

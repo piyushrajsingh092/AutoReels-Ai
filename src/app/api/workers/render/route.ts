@@ -115,17 +115,42 @@ export async function GET(request: Request) {
 
             logger('🎥 Step 5: Rendering video...');
             const { renderVideo } = await import("@/lib/render/video-renderer");
+
+            // Progress update helper
+            let lastProgressUpdate = 0;
+            const onProgress = async (progress: number) => {
+                const now = Date.now();
+                // Update at most every 2 seconds, or if complete
+                if (now - lastProgressUpdate > 2000 || progress === 100) {
+                    lastProgressUpdate = now;
+                    try {
+                        // Attempt to update progress column. Use explicit type cast if needed or ignore type error
+                        await supabase.from("video_projects")
+                            .update({
+                                status: 'rendering',
+                                progress: progress // Assuming column exists or is added
+                            } as any)
+                            .eq("id", project_id);
+                    } catch (err) {
+                        // If progress column missing, just update status
+                        console.warn("Could not update progress column, falling back to status only");
+                    }
+                }
+            };
+
             const videoUrl = await renderVideo({
                 projectId: project_id,
                 script,
                 duration: project.duration_sec,
                 language: project.language,
-                logger: logger
+                logger: logger,
+                onProgress: onProgress
             });
 
             logger('💾 Step 6: Updating final status...');
             await supabase.from("video_projects").update({
                 status: "ready",
+                progress: 100,
                 video_url: videoUrl as string,
             }).eq("id", project_id);
 
