@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, Suspense } from "react";
 import { Sparkles, Video, Clock, Globe, FileText, Cpu } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
