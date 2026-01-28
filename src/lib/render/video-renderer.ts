@@ -9,13 +9,11 @@ import { v4 as uuidv4 } from 'uuid';
 let actualFfmpegPath: string | null = ffmpegPath;
 
 if (process.env.VERCEL === '1') {
-    // In Vercel, ffmpeg-static might not provide a path that works directly with spawn
-    // We try to locate it in the node_modules within the serverless function environment
     const possiblePaths = [
         ffmpegPath,
         path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg'),
         '/var/task/node_modules/ffmpeg-static/ffmpeg',
-        '/opt/bin/ffmpeg' // Some layers use this
+        '/opt/bin/ffmpeg'
     ];
 
     for (const p of possiblePaths) {
@@ -85,18 +83,31 @@ export async function renderVideo({
     const outputFileName = `${uuidv4()}.mp4`;
     const outputPath = path.join(tempDir, outputFileName);
 
-    // Placeholder background
+    // BACKGROUND LOGIC: Use an image if default video is missing
     const bgVideoPath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.mp4');
-    const input = fs.existsSync(bgVideoPath) ? bgVideoPath : 'color=c=black:s=1080x1920:d=' + duration;
-    const isGeneratedBg = !fs.existsSync(bgVideoPath);
+    let inputSource = bgVideoPath;
+    let isImage = false;
+    let useColorFallback = false;
 
-    logger(`🎥 Using background: ${isGeneratedBg ? 'Generated (lavfi)' : 'Asset'}`);
+    if (!fs.existsSync(bgVideoPath)) {
+        // Try fallback image
+        const bgImagePath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.jpg');
+        if (fs.existsSync(bgImagePath)) {
+            inputSource = bgImagePath;
+            isImage = true;
+        } else {
+            // Last resort: color filter
+            useColorFallback = true;
+        }
+    }
 
-    // Try to find a font on Windows, fallback to default
+    logger(`🎥 Using background: ${useColorFallback ? 'Color' : isImage ? 'Image' : 'Asset'}`);
+
+    // Try to find a font
     const fontCandidates = [
         path.join(process.cwd(), 'public', 'fonts', 'Inter-Bold.ttf'),
         'C:/Windows/Fonts/arial.ttf',
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', // Common Linux path
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         'Arial'
     ];
     let selectedFont = '';
@@ -116,14 +127,17 @@ export async function renderVideo({
     return new Promise((resolve, reject) => {
         let command = ffmpeg();
 
-        if (isGeneratedBg) {
-            command.input(input).inputOptions(['-f', 'lavfi']);
+        if (useColorFallback) {
+            // Use simple solid color without lavfi if possible, 
+            // but since we need duration, let's use a 1-pixel transparent image looped
+            // Actually, we'll try a different approach: check if we can just use a simple image
+            command.input('color=c=black:s=1080x1920').inputOptions(['-f', 'lavfi', '-t', duration.toString()]);
+        } else if (isImage) {
+            command.input(inputSource).inputOptions(['-loop', '1']);
         } else {
-            command.input(input);
-            command.inputOptions(['-stream_loop', '-1']);
+            command.input(inputSource).inputOptions(['-stream_loop', '-1']);
         }
 
-        // Complex filter to draw text
         const escapedHook = escapeFFmpegText(script.hook);
         const fontArg = selectedFont ? `:fontfile='${selectedFont.replace(/\\/g, '/')}'` : '';
 
