@@ -53,7 +53,8 @@ export async function renderVideo({
         console.warn('⚠️ Bucket check failed (might already exist):', e);
     }
 
-    const tempDir = path.join(process.cwd(), 'tmp');
+    const isVercel = process.env.VERCEL === '1';
+    const tempDir = isVercel ? '/tmp' : path.join(process.cwd(), 'tmp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
     const outputFileName = `${uuidv4()}.mp4`;
