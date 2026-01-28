@@ -1,0 +1,20 @@
+{
+    "crons": [
+        {
+            "path": "/api/workers/render",
+            "schedule": "* * * * *"
+        },
+        {
+            "path": "/api/cron",
+            "schedule": "*/15 * * * *"
+        }
+    ],
+    "functions": {
+        "src/app/api/workers/render/route.ts": {
+            "maxDuration": 60
+        },
+        "src/app/api/cron/route.ts": {
+            "maxDuration": 60
+        }
+    }
+}
