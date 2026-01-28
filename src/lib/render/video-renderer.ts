@@ -5,13 +5,33 @@ import fs from 'fs';
 import { createAdminClient } from '@/utils/supabase/server';
 import { v4 as uuidv4 } from 'uuid';
 
-let actualFfmpegPath = ffmpegPath;
-if (actualFfmpegPath && actualFfmpegPath.startsWith('\\ROOT')) {
-    actualFfmpegPath = path.join(process.cwd(), actualFfmpegPath.replace('\\ROOT', ''));
-}
-// Also handle cases where it might be relative or missing drive letter
-if (actualFfmpegPath && !actualFfmpegPath.includes(':') && !actualFfmpegPath.startsWith('\\\\')) {
-    actualFfmpegPath = path.join(process.cwd(), actualFfmpegPath);
+// Fixed FFmpeg path for Vercel Serverless
+let actualFfmpegPath: string | null = ffmpegPath;
+
+if (process.env.VERCEL === '1') {
+    // In Vercel, ffmpeg-static might not provide a path that works directly with spawn
+    // We try to locate it in the node_modules within the serverless function environment
+    const possiblePaths = [
+        ffmpegPath,
+        path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg'),
+        '/var/task/node_modules/ffmpeg-static/ffmpeg',
+        '/opt/bin/ffmpeg' // Some layers use this
+    ];
+
+    for (const p of possiblePaths) {
+        if (p && fs.existsSync(p)) {
+            actualFfmpegPath = p;
+            break;
+        }
+    }
+} else {
+    // Local Windows/MacOS logic
+    if (actualFfmpegPath && actualFfmpegPath.startsWith('\\ROOT')) {
+        actualFfmpegPath = path.join(process.cwd(), actualFfmpegPath.replace('\\ROOT', ''));
+    }
+    if (actualFfmpegPath && !actualFfmpegPath.includes(':') && !actualFfmpegPath.startsWith('\\\\')) {
+        actualFfmpegPath = path.join(process.cwd(), actualFfmpegPath);
+    }
 }
 
 if (actualFfmpegPath) {
@@ -39,6 +59,11 @@ export async function renderVideo({
 }) {
     logger('🎬 Starting video render for project: ' + projectId);
     logger('🔧 FFmpeg path being used: ' + actualFfmpegPath);
+
+    if (!actualFfmpegPath || !fs.existsSync(actualFfmpegPath)) {
+        logger('❌ FFmpeg binary not found at ' + actualFfmpegPath);
+        throw new Error('FFmpeg binary not found');
+    }
 
     const supabase = await createAdminClient();
 
@@ -71,11 +96,17 @@ export async function renderVideo({
     const fontCandidates = [
         path.join(process.cwd(), 'public', 'fonts', 'Inter-Bold.ttf'),
         'C:/Windows/Fonts/arial.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', // Common Linux path
         'Arial'
     ];
     let selectedFont = '';
     for (const font of fontCandidates) {
-        if (fs.existsSync(font) || font === 'Arial') {
+        if (font.includes('/') || font.includes('\\')) {
+            if (fs.existsSync(font)) {
+                selectedFont = font;
+                break;
+            }
+        } else {
             selectedFont = font;
             break;
         }
@@ -144,4 +175,3 @@ export async function renderVideo({
             .run();
     });
 }
-
