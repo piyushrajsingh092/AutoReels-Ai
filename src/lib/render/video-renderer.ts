@@ -36,12 +36,30 @@ if (actualFfmpegPath) {
     ffmpeg.setFfmpegPath(actualFfmpegPath);
 }
 
-// Helper to escape text for FFmpeg drawtext
-function escapeFFmpegText(text: string) {
-    return text
-        .replace(/\\/g, '\\\\\\\\')
-        .replace(/'/g, "'\\''")
-        .replace(/:/g, '\\:')
+// Function to format time for SRT (00:00:00,000)
+function formatSrtTime(seconds: number): string {
+    const date = new Date(0);
+    date.setSeconds(seconds);
+    const ms = Math.floor((seconds % 1) * 1000);
+    const timeStr = date.toISOString().substr(11, 8);
+    return `${timeStr},${ms.toString().padStart(3, '0')}`;
+}
+
+// Helper to generate SRT content from script
+function generateSrt(script: { hook: string; body_lines: string[]; cta: string }, totalDuration: number): string {
+    let srt = '';
+    const allLines = [script.hook, ...script.body_lines, script.cta];
+    const lineDuration = totalDuration / allLines.length;
+
+    allLines.forEach((line, i) => {
+        const start = i * lineDuration;
+        const end = (i + 1) * lineDuration;
+        srt += `${i + 1}\n`;
+        srt += `${formatSrtTime(start)} --> ${formatSrtTime(end)}\n`;
+        srt += `${line}\n\n`;
+    });
+
+    return srt;
 }
 
 export async function renderVideo({
@@ -56,37 +74,29 @@ export async function renderVideo({
     logger?: (msg: string) => void;
 }) {
     logger('🎬 Starting video render for project: ' + projectId);
-    logger('🔧 FFmpeg path being used: ' + actualFfmpegPath);
 
     if (!actualFfmpegPath || !fs.existsSync(actualFfmpegPath)) {
-        logger('❌ FFmpeg binary not found at ' + actualFfmpegPath);
+        logger('❌ FFmpeg binary not found');
         throw new Error('FFmpeg binary not found');
     }
 
     const supabase = await createAdminClient();
-
-    // Ensure bucket exists
-    try {
-        const { data: buckets } = await supabase.storage.listBuckets();
-        if (!buckets?.find(b => b.id === 'videos')) {
-            console.log('📦 Creating "videos" bucket...');
-            await supabase.storage.createBucket('videos', { public: true });
-        }
-    } catch (e) {
-        console.warn('⚠️ Bucket check failed (might already exist):', e);
-    }
-
     const isVercel = process.env.VERCEL === '1';
     const tempDir = isVercel ? '/tmp' : path.join(process.cwd(), 'tmp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
     const outputFileName = `${uuidv4()}.mp4`;
     const outputPath = path.join(tempDir, outputFileName);
+    const srtPath = path.join(tempDir, `${uuidv4()}.srt`);
 
-    // BACKGROUND LOGIC: Check for video or image assets
+    // 1. Generate subtitles file
+    const srtContent = generateSrt(script, duration);
+    fs.writeFileSync(srtPath, srtContent);
+    logger('📝 Subtitles generated at ' + srtPath);
+
+    // 2. Determine background
     const bgVideoPath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.mp4');
     const bgImagePath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.png');
-    const bgJpgPath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.jpg');
 
     let inputSource = "";
     let isImage = false;
@@ -97,17 +107,12 @@ export async function renderVideo({
     } else if (fs.existsSync(bgImagePath)) {
         inputSource = bgImagePath;
         isImage = true;
-    } else if (fs.existsSync(bgJpgPath)) {
-        inputSource = bgJpgPath;
-        isImage = true;
     }
 
     if (!inputSource) {
-        logger('❌ No background asset found. Please ensure public/assets/broll/default.png exists.');
+        logger('❌ Background asset missing');
         throw new Error('Background asset missing');
     }
-
-    logger(`🎥 Using background: ${isImage ? 'Image' : 'Video'} (${path.basename(inputSource)})`);
 
     return new Promise((resolve, reject) => {
         let command = ffmpeg();
@@ -118,22 +123,24 @@ export async function renderVideo({
             command.input(inputSource).inputOptions(['-stream_loop', '-1']);
         }
 
-        const escapedText = escapeFFmpegText(script.hook);
+        // 3. Chain filters: scale/crop -> subtitles
+        // Vercel friendly: Simple -vf chain
+        // Note: For subtitles filter, we need to carefully escape the path
+        const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
 
-        // Vercel FFmpeg is VERY limited. 
-        // Code 8 "Filter not found" often refers to drawtext itself if the binary was compiled without it.
-        // Let's try the absolute simplest possible scale/crop filter first.
-
-        // DIAGNOSTIC VERSION: Removed drawtext to test if libfreetype is missing in the Vercel binary.
-        // If this works, the problem is 100% the drawtext filter support.
-        const videoFilters = [
+        // Final filter: scale, crop, and burn subtitles
+        // We use 'force_style' to make subtitles look good (Centered, Large, Yellow/White)
+        const filterStr = [
             'scale=1080:1920:force_original_aspect_ratio=increase',
             'crop=1080:1920',
-            'setsar=1'
+            'setsar=1',
+            `subtitles='${escapedSrtPath}':force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Alignment=2'`
         ].join(',');
 
+        logger('🛠 Applying render filters...');
+
         command
-            .videoFilter(videoFilters)
+            .videoFilter(filterStr)
             .outputOptions([
                 '-t', duration.toString(),
                 '-c:v', 'libx264',
@@ -145,7 +152,7 @@ export async function renderVideo({
             .on('start', (cmdLine) => logger('🚀 FFmpeg started: ' + cmdLine))
             .on('end', async () => {
                 try {
-                    logger('✅ FFmpeg finished rendering. Uploading...');
+                    logger('✅ Render finished. Uploading to Supabase...');
                     const fileBuffer = fs.readFileSync(outputPath);
                     const { data, error } = await supabase.storage
                         .from('videos')
@@ -154,27 +161,25 @@ export async function renderVideo({
                             upsert: true
                         });
 
-                    if (error) {
-                        logger('❌ Supabase Upload Error: ' + error.message);
-                        throw error;
-                    }
+                    if (error) throw error;
 
                     const { data: { publicUrl } } = supabase.storage
                         .from('videos')
                         .getPublicUrl(`${projectId}/${outputFileName}`);
 
-                    logger('🔗 Public URL generated: ' + publicUrl);
+                    // Cleanup
                     if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+                    if (fs.existsSync(srtPath)) fs.unlinkSync(srtPath);
+
+                    logger('🔗 Public URL: ' + publicUrl);
                     resolve(publicUrl);
                 } catch (e: any) {
-                    logger('❌ Error in post-render step: ' + e.message);
+                    logger('❌ Upload failed: ' + e.message);
                     reject(e);
                 }
             })
             .on('error', (err, stdout, stderr) => {
                 logger('❌ FFmpeg Error: ' + err.message);
-                logger('FFmpeg STDOUT: ' + stdout);
-                logger('FFmpeg STDERR: ' + stderr);
                 reject(err);
             })
             .run();
