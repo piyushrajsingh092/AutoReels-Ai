@@ -177,10 +177,10 @@ export async function renderVideo({
 
         const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
         const filterStr = [
-            'scale=1080:1920:force_original_aspect_ratio=increase',
-            'crop=1080:1920',
+            'scale=720:1280:force_original_aspect_ratio=increase',
+            'crop=720:1280',
             'setsar=1',
-            `subtitles='${escapedSrtPath}':force_style='FontSize=26,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Alignment=2,MarginV=60'`
+            `subtitles='${escapedSrtPath}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Alignment=2,MarginV=50'`
         ].join(',');
 
         logger('🛠 Merging background, audio, and subtitles...');
