@@ -7,16 +7,16 @@ export default function TemplatesPage() {
     const categories = ["All", "Motivation", "Facts", "Business", "Sports", "Nature"];
 
     const templates = [
-        { id: 1, name: "Viral Motivation", niche: "Motivation", desc: "High-energy captions with cinematic overlays", color: "from-blue-600 to-indigo-700" },
-        { id: 2, name: "Daily Facts", niche: "Facts", desc: "Clean, educational layout with bold headers", color: "from-amber-500 to-orange-600" },
-        { id: 3, name: "Business Growth", niche: "Business", desc: "Professional typography for corporate tips", color: "from-emerald-600 to-teal-700" },
-        { id: 4, name: "Sports Recap", niche: "Sports", desc: "Fast-paced motion styles for highlights", color: "from-red-600 to-rose-700" },
-        { id: 5, name: "Nature Wonders", niche: "Nature", desc: "Serene, minimalist captions for travel vlogs", color: "from-green-600 to-lime-600" },
-        { id: 6, name: "AI Tech News", niche: "Technology", desc: "Futuristic glow effects and neon text", color: "from-purple-600 to-fuchsia-700" },
+        { id: 1, name: "Viral Motivation", niche: "Motivation", desc: "High-energy captions with cinematic overlays", color: "from-blue-600 to-indigo-700", style: "cinematic" },
+        { id: 2, name: "Daily Facts", niche: "Facts", desc: "Clean, educational layout with bold headers", color: "from-amber-500 to-orange-600", style: "text_subtitles" },
+        { id: 3, name: "Business Growth", niche: "Business", desc: "Professional typography for corporate tips", color: "from-emerald-600 to-teal-700", style: "minimalist" },
+        { id: 4, name: "Sports Recap", niche: "Sports", desc: "Fast-paced motion styles for highlights", color: "from-red-600 to-rose-700", style: "cinematic" },
+        { id: 5, name: "Nature Wonders", niche: "Nature", desc: "Serene, minimalist captions for travel vlogs", color: "from-green-600 to-lime-600", style: "minimalist" },
+        { id: 6, name: "AI Tech News", niche: "Technology", desc: "Futuristic glow effects and neon text", color: "from-purple-600 to-fuchsia-700", style: "text_subtitles" },
     ];
 
-    const handleUseTemplate = (niche: string) => {
-        router.push(`/app/create?niche=${encodeURIComponent(niche)}`);
+    const handleUseTemplate = (niche: string, style: string) => {
+        router.push(`/app/create?niche=${encodeURIComponent(niche)}&style=${encodeURIComponent(style)}`);
     };
 
     return (
@@ -65,7 +65,7 @@ export default function TemplatesPage() {
                             </div>
                             <p className="text-sm text-gray-400 leading-relaxed mb-6">{tmp.desc}</p>
                             <button
-                                onClick={() => handleUseTemplate(tmp.niche)}
+                                onClick={() => handleUseTemplate(tmp.niche, tmp.style)}
                                 className="w-full py-4 rounded-xl bg-white text-black font-black hover:bg-primary hover:text-white transition-all transform active:scale-95 flex items-center justify-center gap-2"
                             >
                                 USE THIS TEMPLATE

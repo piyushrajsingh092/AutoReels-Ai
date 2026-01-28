@@ -16,9 +16,13 @@ function CreateVideoForm() {
 
     useEffect(() => {
         const queryNiche = searchParams.get("niche");
+        const queryStyle = searchParams.get("style");
         if (queryNiche) {
             setNiche(queryNiche);
             setMode("auto");
+        }
+        if (queryStyle) {
+            setStyle(queryStyle);
         }
     }, [searchParams]);
 
