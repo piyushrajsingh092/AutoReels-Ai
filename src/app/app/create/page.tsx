@@ -119,7 +119,6 @@ export default function CreateVideo() {
                                     className="input"
                                     value={provider}
                                     onChange={(e) => setProvider(e.target.value)}
-                                    disabled={mode === 'manual'}
                                 >
                                     <option value="openai">OpenAI (Pro)</option>
                                     <option value="groq">Groq (Fast/Free)</option>
