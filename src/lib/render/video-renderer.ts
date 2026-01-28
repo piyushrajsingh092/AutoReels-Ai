@@ -83,25 +83,31 @@ export async function renderVideo({
     const outputFileName = `${uuidv4()}.mp4`;
     const outputPath = path.join(tempDir, outputFileName);
 
-    // BACKGROUND LOGIC: Use an image if default video is missing
+    // BACKGROUND LOGIC: Check for video or image assets
     const bgVideoPath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.mp4');
-    let inputSource = bgVideoPath;
-    let isImage = false;
-    let useColorFallback = false;
+    const bgImagePath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.png');
+    const bgJpgPath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.jpg');
 
-    if (!fs.existsSync(bgVideoPath)) {
-        // Try fallback image
-        const bgImagePath = path.join(process.cwd(), 'public', 'assets', 'broll', 'default.jpg');
-        if (fs.existsSync(bgImagePath)) {
-            inputSource = bgImagePath;
-            isImage = true;
-        } else {
-            // Last resort: color filter
-            useColorFallback = true;
-        }
+    let inputSource = "";
+    let isImage = false;
+
+    if (fs.existsSync(bgVideoPath)) {
+        inputSource = bgVideoPath;
+        isImage = false;
+    } else if (fs.existsSync(bgImagePath)) {
+        inputSource = bgImagePath;
+        isImage = true;
+    } else if (fs.existsSync(bgJpgPath)) {
+        inputSource = bgJpgPath;
+        isImage = true;
     }
 
-    logger(`🎥 Using background: ${useColorFallback ? 'Color' : isImage ? 'Image' : 'Asset'}`);
+    if (!inputSource) {
+        logger('❌ No background asset found. Please ensure public/assets/broll/default.png exists.');
+        throw new Error('Background asset missing');
+    }
+
+    logger(`🎥 Using background: ${isImage ? 'Image' : 'Video'} (${path.basename(inputSource)})`);
 
     // Try to find a font
     const fontCandidates = [
@@ -127,12 +133,7 @@ export async function renderVideo({
     return new Promise((resolve, reject) => {
         let command = ffmpeg();
 
-        if (useColorFallback) {
-            // Use simple solid color without lavfi if possible, 
-            // but since we need duration, let's use a 1-pixel transparent image looped
-            // Actually, we'll try a different approach: check if we can just use a simple image
-            command.input('color=c=black:s=1080x1920').inputOptions(['-f', 'lavfi', '-t', duration.toString()]);
-        } else if (isImage) {
+        if (isImage) {
             command.input(inputSource).inputOptions(['-loop', '1']);
         } else {
             command.input(inputSource).inputOptions(['-stream_loop', '-1']);
