@@ -109,27 +109,6 @@ export async function renderVideo({
 
     logger(`🎥 Using background: ${isImage ? 'Image' : 'Video'} (${path.basename(inputSource)})`);
 
-    // Try to find a font
-    const fontCandidates = [
-        path.join(process.cwd(), 'public', 'fonts', 'Inter-Bold.ttf'),
-        'C:/Windows/Fonts/arial.ttf',
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        'Arial'
-    ];
-    let selectedFont = '';
-    for (const font of fontCandidates) {
-        if (font.includes('/') || font.includes('\\')) {
-            if (fs.existsSync(font)) {
-                selectedFont = font;
-                break;
-            }
-        } else {
-            selectedFont = font;
-            break;
-        }
-    }
-    logger('🔤 Selected Font: ' + selectedFont);
-
     return new Promise((resolve, reject) => {
         let command = ffmpeg();
 
@@ -140,17 +119,20 @@ export async function renderVideo({
         }
 
         const escapedHook = escapeFFmpegText(script.hook);
-        const fontArg = selectedFont ? `:fontfile='${selectedFont.replace(/\\/g, '/')}'` : '';
 
-        // Final filter: scale, crop to 9:16, draw text
-        let filters = `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[v0];`;
-        filters += `[v0]drawtext=text='${escapedHook}':fontsize=70:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.6:boxborderw=20${fontArg}[out]`;
+        // Vercel FFmpeg is very limited. We'll simplify the filters significantly.
+        // We'll use simple output options instead of complex filters if possible.
 
-        logger('🛠 Applying FFmpeg filters...');
+        logger('🛠 Applying simplified FFmpeg filters...');
 
         command
-            .complexFilter(filters)
-            .outputOptions(['-map [out]', '-t', duration.toString()])
+            .outputOptions([
+                '-vf', `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,drawtext=text='${escapedHook}':fontsize=70:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.6:boxborderw=20`,
+                '-t', duration.toString(),
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-pix_fmt', 'yuv420p'
+            ])
             .output(outputPath)
             .on('start', (cmdLine) => logger('🚀 FFmpeg started: ' + cmdLine))
             .on('end', async () => {
